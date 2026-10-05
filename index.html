@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planeaciones secundaria</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{--bg:#f1f4f3;--ink:#1c2a29;--ac:#0f6b66;--ln:#c9d4d2;--w:#fff;--er:#b3402a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Atkinson Hyperlegible",system-ui,sans-serif}
+main{display:grid;grid-template-columns:340px 1fr;gap:20px;max-width:1200px;margin:0 auto;padding:20px}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:18px 0 6px}
+aside,section{background:var(--w);border:1px solid var(--ln);border-radius:8px;padding:16px}
+label{display:block;font-size:13px;margin:8px 0 2px;color:#40504f}
+input,select,textarea{width:100%;font:inherit;padding:7px 8px;border:1px solid var(--ln);border-radius:5px;background:#fff;color:var(--ink)}
+textarea{resize:vertical;min-height:70px}.r{display:flex;gap:6px}.r>*{flex:1}
+button{font:inherit;padding:8px 12px;border:1px solid var(--ac);background:var(--ac);color:#fff;border-radius:5px;cursor:pointer}
+button.g{background:#fff;color:var(--ac)}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #7fc4be;outline-offset:1px}
+.b{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}#st{margin-top:10px;font-size:13px;min-height:20px}#st.e{color:var(--er)}
+.s{border-top:2px solid var(--ac);margin-top:18px;padding-top:4px}small{color:#5a6a69}details{margin-top:12px}
+</style></head><body>
+<main>
+<aside>
+<h1>Planeaciones</h1><small>Matemáticas y Física · NEM</small>
+<div class="r"><div><label for="asig">Materia</label><select id="asig"><option value="MAT">Matemáticas</option><option value="FIS">Física</option></select></div>
+<div><label for="grupo">Grupo</label><input id="grupo" placeholder="1° A y B"></div></div>
+<div class="r"><div><label for="semana">Semana</label><input id="semana" placeholder="06"></div>
+<div><label for="trim">Trimestre</label><input id="trim" placeholder="1"></div>
+<div><label for="nses">Sesiones</label><input id="nses" type="number" min="1" max="6" value="4"></div></div>
+<label>Fechas (día, mes — día, mes)</label>
+<div class="r"><input id="di" placeholder="05"><input id="mi" placeholder="octubre"><input id="df" placeholder="09"><input id="mf" placeholder="octubre"></div>
+<label for="txt">Lo que harás cada día (escribe o dicta)</label>
+<textarea id="txt" rows="9" placeholder="Sesión 1: ... Sesión 2: ..."></textarea>
+<label for="proy">Proyecto trimestral (vacío = NA)</label><textarea id="proy" rows="2" style="min-height:40px"></textarea>
+<div class="b"><button id="mic" class="g" type="button">🎤 Dictar</button><button id="go" type="button">Redactar</button><button id="stop" class="g" type="button">Cancelar</button></div>
+<div class="b"><button id="blank" class="g" type="button">Plantilla en blanco</button><button id="new" class="g" type="button">Nueva</button></div>
+<div id="st" role="status"></div>
+<details><summary>Ajustes</summary>
+<label for="key">Clave de API de Google (AI Studio)</label><input id="key" type="password" autocomplete="off">
+<label for="models">Modelos, en orden de intento (uno por línea)</label><textarea id="models" rows="4"></textarea>
+<div class="b"><button id="lm" class="g" type="button">Ver modelos disponibles</button></div>
+<label>Plantillas Word (tus planeaciones .docx, se cargan una vez)</label>
+<div class="b"><button class="g" type="button" data-t="MAT">Matemáticas</button><button class="g" type="button" data-t="FIS">Física</button></div>
+<small id="tp"></small><input id="fi" type="file" accept=".docx" hidden>
+</details>
+</aside>
+<section><h1>Revisión</h1><small>Edita lo que quieras. Cada renglón de las listas es un párrafo.</small>
+<div id="ed"><p><small>Aquí aparecerá la planeación redactada.</small></p></div>
+<div class="b"><button id="doc" type="button">Generar Word</button></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s),LS=localStorage,W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const DEF='gemini-flash-latest\ngemini-flash-lite-latest\ngemini-2.5-flash\ngemini-2.5-flash-lite';
+const M=['asig','grupo','semana','trim','nses','di','mi','df','mf','txt','proy'];
+let D=JSON.parse(LS.d||'{}'),ctl=null,stopped=false;
+const st=(t,e)=>{$('#st').textContent=t;$('#st').className=e?'e':''};
+const save=()=>{LS.d=JSON.stringify(D);LS.m=JSON.stringify(Object.fromEntries(M.map(k=>[k,$('#'+k).value])))};
+const m0=JSON.parse(LS.m||'{}');M.forEach(k=>{if(m0[k]!=null)$('#'+k).value=m0[k];$('#'+k).addEventListener('input',save)});
+$('#key').value=LS.key||'';$('#key').oninput=e=>LS.key=e.target.value;
+$('#models').value=LS.mod||DEF;$('#models').oninput=e=>LS.mod=e.target.value;
+const tp=()=>$('#tp').textContent=['MAT','FIS'].map(t=>t+': '+(LS['t'+t]?'cargada ✓':'falta')).join(' · ');tp();
+
+const R=`Eres asistente de una docente/docente de secundaria en México (Nueva Escuela Mexicana). Redacta en español, tercera persona o impersonal ("Se saluda al grupo…", "El alumnado resuelve…"), formal, concisa y apta para supervisión. No inventes datos que no se dieron (páginas, fechas, materiales). Texto plano sin markdown; fórmulas con símbolos Unicode (×, ÷, ², ½). Responde SOLO JSON.`;
+const P1=t=>`${R}
+Materia: ${$('#asig').selectedOptions[0].text}, grupo ${$('#grupo').value}. Descripción coloquial de la semana:
+"""${t}"""
+Devuelve JSON: {"ejes_articuladores":"1 o 2 ejes NEM separados por coma, termina en punto (Inclusión, Pensamiento crítico, Interculturalidad crítica, Igualdad de género, Vida saludable, Apropiación de las culturas a través de la lectura y la escritura, Artes y experiencias estéticas)","tema_central":"frase nominal","objetivo":"Que el alumnado …","pda":"1-2 oraciones, procesos de desarrollo de aprendizaje","contenidos":["una frase corta por tema, con punto"],"icep":"Se favorece … (aporte al clima escolar positivo)","sesiones":["texto original de cada sesión, separado por sesión, en orden"]}`;
+const P2=(s,i,n)=>`${R}
+Sesión ${i+1} de ${n}. Tema central: ${D.tema_central}. Lo que hará la docente: """${s.texto}"""
+Devuelve JSON: {"objetivo":"UNA oración que inicia con verbo de Bloom en infinitivo (identificar, aplicar, resolver, comparar, justificar…)","inicio":"empieza con 'Se saluda al grupo…', luego preguntas detonadoras o retroalimentación breve","desarrollo":["2-4 párrafos: explicación y ejemplos del docente, trabajo del alumnado, atención de dudas; incluye dictados, definiciones o fórmulas si se pidieron"],"cierre":"retroalimentación, aplicaciones o errores frecuentes, dudas","recursos_extra":["solo material adicional necesario; [] si ninguno"]}`;
+
+async function gen(p){
+ const key=$('#key').value.trim();if(!key)throw Error('Falta la clave de API (en Ajustes).');
+ const ms=$('#models').value.split('\n').map(s=>s.trim()).filter(Boolean);let last='';
+ for(const m of ms){if(stopped)throw Error('Cancelado.');
+  st(`Probando ${m}…`);ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),30000);
+  try{const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:p}]}],generationConfig:{responseMimeType:'application/json',temperature:.4}})});
+   clearTimeout(to);
+   if(r.status==400||r.status==403)throw Object.assign(Error('La clave de API no es válida o no tiene permiso.'),{fatal:1});
+   if(!r.ok){last=`${m}: error ${r.status}`;continue}
+   const j=await r.json();return JSON.parse(j.candidates[0].content.parts[0].text.replace(/```json|```/g,'').trim());
+  }catch(e){clearTimeout(to);if(e.fatal)throw e;if(stopped)throw Error('Cancelado.');last=`${m}: ${e.name=='AbortError'?'tardó más de 30 s':e.message}`}}
+ throw Error('Ningún modelo respondió ('+last+'). Intenta de nuevo o usa la plantilla en blanco.');
+}
+$('#stop').onclick=()=>{stopped=true;ctl&&ctl.abort()};
+$('#go').onclick=async()=>{
+ const t=$('#txt').value.trim();if(!t)return st('Escribe o dicta lo que harás.',1);
+ stopped=false;$('#go').disabled=true;
+ try{
+  if(!D.tema_central||D.fuente!==t){const w=await gen(P1(t));D={fuente:t,...w,sesiones:(w.sesiones||[]).map(x=>({texto:x}))};save();render()}
+  for(let i=0;i<D.sesiones.length;i++){const s=D.sesiones[i];if(s.inicio)continue;
+   st(`Redactando sesión ${i+1} de ${D.sesiones.length}…`);Object.assign(s,await gen(P2(s,i,D.sesiones.length)));save();render()}
+  st('Listo. Revisa y edita antes de generar el Word.');
+ }catch(e){st(e.message+' Lo ya redactado se conservó; vuelve a pulsar Redactar para continuar.',1)}
+ $('#go').disabled=false};
+$('#new').onclick=()=>{if(confirm('¿Borrar la planeación actual?')){D={};save();render();st('')}};
+$('#blank').onclick=()=>{const n=+$('#nses').value||4;D={fuente:'',tema_central:' ',ejes_articuladores:'',objetivo:'',pda:'',contenidos:[],icep:'',sesiones:Array.from({length:n},()=>({texto:'',inicio:' '}))};save();render()};
+
+const ar=v=>Array.isArray(v)?v.join('\n'):(v||'');
+function render(){const e=$('#ed');if(!D.sesiones){e.innerHTML='<p><small>Aquí aparecerá la planeación redactada.</small></p>';return}
+ const f=(l,k,s,rows=2)=>`<label>${l}</label><textarea rows="${rows}" data-k="${k}"${s!=null?` data-s="${s}"`:''}>${ar(s!=null?D.sesiones[s][k]:D[k]).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>`;
+ e.innerHTML=f('Ejes articuladores','ejes_articuladores')+f('Tema central','tema_central')+f('Objetivo','objetivo')+f('PDA','pda',null,3)+f('Contenido a trabajar (un renglón por tema)','contenidos',null,5)+f('Icep (clima escolar positivo)','icep')+
+ D.sesiones.map((s,i)=>`<div class="s"><h2>Sesión ${i+1}</h2>${f('Objetivo / propósito','objetivo',i)}${f('Inicio','inicio',i,3)}${f('Desarrollo (un renglón por párrafo)','desarrollo',i,8)}${f('Cierre','cierre',i,3)}${f('Recursos adicionales (uno por renglón)','recursos_extra',i,2)}</div>`).join('');
+ if(D.sesiones.some(s=>s.inicio===' '))e.querySelectorAll('[data-s][data-k=inicio]').forEach(x=>{if(x.value==' ')x.value=''})}
+$('#ed').addEventListener('input',e=>{const t=e.target,k=t.dataset.k;if(!k)return;
+ const lst=['contenidos','desarrollo','recursos_extra'].includes(k),v=lst?t.value.split('\n').filter(x=>x.trim()):t.value;
+ if(t.dataset.s!=null)D.sesiones[+t.dataset.s][k]=v;else D[k]=v;save()});
+render();
+
+// Dictado por voz
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+$('#mic').onclick=()=>{if(!SR)return st('Este navegador no admite dictado. Usa Chrome o Edge.',1);
+ if(rec){rec.stop();return}rec=new SR();rec.lang='es-MX';rec.continuous=true;
+ rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++)if(e.results[i].isFinal){$('#txt').value+=(($('#txt').value&&' ')+e.results[i][0].transcript.trim());save()}};
+ rec.onend=()=>{rec=null;$('#mic').textContent='🎤 Dictar'};rec.onerror=e=>st('Error de micrófono: '+e.error,1);
+ rec.start();$('#mic').textContent='⏹ Detener'};
+
+$('#lm').onclick=async()=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':$('#key').value.trim()}});
+ if(!r.ok)throw Error('error '+r.status);const j=await r.json();
+ const l=j.models.filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')&&/flash/.test(m.name)).map(m=>m.name.replace('models/',''));
+ alert('Modelos Flash disponibles con tu clave:\n\n'+l.join('\n')+'\n\nCopia los que quieras al cuadro de modelos.')}catch(e){st('No se pudo consultar: '+e.message,1)}};
+
+// Plantillas
+let tt='';document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tt=b.dataset.t;$('#fi').click()});
+$('#fi').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{LS['t'+tt]=r.result.split(',')[1];tp();st('Plantilla cargada.')};r.readAsDataURL(f);e.target.value=''};
+
+// Word
+const K=n=>[...n.children],tg=(n,l)=>K(n).filter(x=>x.localName==l);
+const cel=(t,r,c)=>tg(tg(t,'tr')[r],'tc')[c];
+function put(tc,tx){if(typeof tx=='string')tx=[tx];const ps=tg(tc,'p'),pr=ps[0].cloneNode(true);ps.forEach(p=>tc.removeChild(p));
+ for(const x of tx){const p=pr.cloneNode(true),rs=tg(p,'r');rs.slice(1).forEach(r=>p.removeChild(r));
+  if(rs[0]){const r=rs[0];[...tg(r,'t'),...tg(r,'br')].forEach(n=>r.removeChild(n));
+   if(x){const t=r.ownerDocument.createElementNS(W,'w:t');t.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');t.textContent=x;r.appendChild(t)}}
+  tc.appendChild(p)}}
+const gap=l=>l.length<2?l:l.flatMap((x,i)=>i?['',x]:[x]);
+$('#doc').onclick=async()=>{try{
+ if(!D.sesiones)return st('Primero redacta o crea una plantilla en blanco.',1);
+ const a=$('#asig').value,b64=LS['t'+a];if(!b64)return st('Carga la plantilla de esta materia en Ajustes.',1);
+ const z=await JSZip.loadAsync(b64,{base64:true}),doc=new DOMParser().parseFromString(await z.file('word/document.xml').async('string'),'application/xml');
+ const body=doc.getElementsByTagNameNS(W,'body')[0],tb=tg(body,'tbl'),V=k=>$('#'+k).value.trim();
+ put(cel(tb[0],2,2),V('grupo'));put(cel(tb[0],2,4),V('semana'));put(cel(tb[0],2,6),V('trim'));
+ put(cel(tb[0],3,2),V('di'));put(cel(tb[0],3,4),V('mi').toUpperCase());put(cel(tb[0],3,6),V('df'));put(cel(tb[0],3,8),V('mf').toUpperCase());
+ put(cel(tb[0],3,10),String(D.sesiones.length).padStart(2,'0'));
+ const s1=tb[1];put(cel(s1,1,0),'Saberes y pensamiento científico');put(cel(s1,1,1),D.ejes_articuladores||'');put(cel(s1,1,2),D.tema_central.trim());
+ put(cel(s1,3,0),D.objetivo||'');put(cel(s1,5,0),D.pda||'');put(cel(s1,5,1),D.contenidos.length?D.contenidos:'');
+ put(cel(s1,7,0),V('proy')||'NA');put(cel(s1,7,1),D.icep||'');
+ const old=tb.slice(2,6),proto=old[0].cloneNode(true),sep=old[0].nextElementSibling.cloneNode(true),ancla=tb[6];
+ old.forEach(t=>{const n=t.nextElementSibling;body.removeChild(t);if(n&&n.localName=='p')body.removeChild(n)});
+ const BASE=['Cuaderno.','Pintarrón y marcadores.','Regla.','Libro de texto.','Tablet y IPad'];
+ D.sesiones.forEach((s,i)=>{const t=proto.cloneNode(true);body.insertBefore(t,ancla);body.insertBefore(sep.cloneNode(true),ancla);
+  put(cel(t,0,0),'SESIÓN '+(i+1));put(cel(t,2,0),s.objetivo||'');put(cel(t,3,1),(s.inicio||'').trim());
+  put(cel(t,5,1),gap([].concat(s.desarrollo||'')));put(cel(t,7,0),BASE.concat(s.recursos_extra||[]));put(cel(t,9,1),s.cierre||'')});
+ z.file('word/document.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'+new XMLSerializer().serializeToString(doc));
+ const blob=await z.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+ const g=(V('grupo').match(/\d/)||[''])[0],n=`PLANEACION_${V('semana')}_${a}_${g}_TRIM_${V('trim')}_${V('di')}${V('mi').slice(0,3).toUpperCase()}.docx`;
+ const l=document.createElement('a');l.href=URL.createObjectURL(blob);l.download=n;l.click();st('Descargado: '+n);
+}catch(e){st('No se pudo generar el Word: '+e.message,1)}};
+</script></body></html>
